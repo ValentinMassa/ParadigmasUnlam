@@ -1,0 +1,170 @@
+pipeline {
+    agent any
+    
+    tools {
+        // Configura estos nombres en Jenkins -> Manage Jenkins -> Global Tool Configuration
+        maven 'Maven'  // Cambia esto si tu instalación de Maven tiene otro nombre
+        jdk 'JDK-17'   // Cambiado a JDK-17 (puedes usar JDK-11 si prefieres)
+    }
+    
+    environment {
+        // Variables de entorno personalizadas
+        PROJECT_DIR = 'testing_jenkins/Círculos e intersecciones/CirculosEIntersecciones'
+        MAVEN_OPTS = '-Dmaven.test.failure.ignore=false'
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '🔄 Obteniendo código fuente del repositorio...'
+                checkout scm
+                echo "✓ Rama: ${env.GIT_BRANCH}"
+                echo "✓ Commit: ${env.GIT_COMMIT}"
+            }
+        }
+        
+        stage('Build') {
+            steps {
+                echo '🔨 Compilando el proyecto...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn clean compile'
+                        } else {
+                            bat 'mvn clean compile'
+                        }
+                    }
+                }
+                echo '✓ Compilación exitosa'
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                echo '🧪 Ejecutando tests...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn test'
+                        } else {
+                            bat 'mvn test'
+                        }
+                    }
+                }
+            }
+            post {
+                always {
+                    echo '📊 Publicando resultados de tests...'
+                    junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+                    
+                    // Archivar reportes de tests
+                    publishHTML(target: [
+                        allowMissing: true,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: "${PROJECT_DIR}/target/surefire-reports",
+                        reportFiles: '*.html',
+                        reportName: 'Test Report'
+                    ])
+                }
+                success {
+                    echo '✓ Todos los tests pasaron correctamente'
+                }
+                failure {
+                    echo '✗ Algunos tests fallaron. Revisa el reporte.'
+                }
+            }
+        }
+        
+        stage('Code Coverage') {
+            steps {
+                echo '📈 Generando reporte de cobertura...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn jacoco:report || true'
+                        } else {
+                            bat 'mvn jacoco:report || true'
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Package') {
+            steps {
+                echo '📦 Empaquetando aplicación...'
+                dir("${PROJECT_DIR}") {
+                    script {
+                        if (isUnix()) {
+                            sh 'mvn package -DskipTests'
+                        } else {
+                            bat 'mvn package -DskipTests'
+                        }
+                    }
+                }
+                echo '✓ Empaquetado exitoso'
+            }
+            post {
+                success {
+                    // Archivar el JAR generado
+                    archiveArtifacts artifacts: '**/target/*.jar', 
+                                   fingerprint: true,
+                                   allowEmptyArchive: true
+                }
+            }
+        }
+        
+        stage('Quality Gate') {
+            steps {
+                echo '✅ Verificando calidad del código...'
+                script {
+                    def testResults = junit '**/target/surefire-reports/*.xml'
+                    if (testResults.totalCount == 0) {
+                        error('No se encontraron tests')
+                    }
+                    echo "Tests ejecutados: ${testResults.totalCount}"
+                    echo "Tests exitosos: ${testResults.passCount}"
+                    echo "Tests fallidos: ${testResults.failCount}"
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            echo '🎉 ¡Pipeline ejecutado exitosamente!'
+            echo "Build #${env.BUILD_NUMBER} completado"
+            echo "Duración: ${currentBuild.durationString}"
+        }
+        failure {
+            echo '❌ El pipeline falló. Revisa los logs.'
+            echo "Build #${env.BUILD_NUMBER} falló"
+        }
+        unstable {
+            echo '⚠️ El build es inestable (tests fallaron)'
+        }
+        always {
+            echo '🧹 Generando reporte final...'
+            
+            // Mostrar resumen
+            script {
+                def status = currentBuild.currentResult
+                def duration = currentBuild.durationString
+                echo """
+                ═══════════════════════════════════
+                📋 RESUMEN DEL BUILD
+                ═══════════════════════════════════
+                Estado: ${status}
+                Duración: ${duration}
+                Build: #${env.BUILD_NUMBER}
+                Rama: ${env.GIT_BRANCH}
+                ═══════════════════════════════════
+                """
+            }
+            
+            // Limpiar workspace (comentar si quieres mantener los archivos)
+            // cleanWs()
+        }
+    }
+}
