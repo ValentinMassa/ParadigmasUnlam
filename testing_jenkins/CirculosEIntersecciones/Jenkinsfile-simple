@@ -76,8 +76,69 @@ pipeline {
     }
     post {
         always {
-            echo '🚧 Pipeline finalizado.'
-        }
-    }
-}
+            // Jenkinsfile Simplificado - Linux-friendly (fixed)
+            pipeline {
+                agent any
+
+                // If you configure Tools in Jenkins (Manage Jenkins -> Global Tool Configuration)
+                // you can enable the tools block (must match the names configured in Jenkins):
+                // tools { maven 'Maven'; jdk 'JDK-17' }
+
+                environment {
+                    PROJECT_DIR = 'testing_jenkins/CirculosEIntersecciones'
+                    MAVEN_OPTS = '-Dmaven.test.failure.ignore=false'
+                }
+
+                stages {
+                    stage('Checkout') {
+                        steps {
+                            echo 'Obteniendo código...'
+                            checkout scm
+                        }
+                    }
+
+                    stage('Build & Test') {
+                        steps {
+                            echo 'Compilando y ejecutando tests...'
+                            dir("${PROJECT_DIR}") {
+                                script {
+                                    if (isUnix()) {
+                                        sh 'mvn clean test'
+                                    } else {
+                                        bat 'mvn clean test'
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    stage('Package') {
+                        steps {
+                            echo 'Generando JAR...'
+                            dir("${PROJECT_DIR}") {
+                                script {
+                                    if (isUnix()) {
+                                        sh 'mvn package -DskipTests'
+                                    } else {
+                                        bat 'mvn package -DskipTests'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                post {
+                    always {
+                        junit '**/target/surefire-reports/*.xml'
+                        archiveArtifacts artifacts: '**/target/*.jar', allowEmptyArchive: true
+                    }
+                    success {
+                        echo '✓ Build exitoso'
+                    }
+                    failure {
+                        echo '✗ Build falló'
+                    }
+                }
+            }
 
